@@ -10,6 +10,7 @@ struct state {
    unsigned int in_emph : 1;
    unsigned int in_ital : 1;
    unsigned int in_list : 1;
+   unsigned int in_elme : 1;
    unsigned int in_head : 1;
    unsigned short head_num;
 };
@@ -93,7 +94,6 @@ char emph_ital_process(struct state *s, FILE *ifp, FILE *ofp, char c){
     char fc = c;
     c = fgetc(ifp);
 
-
     if(c == '*' && fc == '*'){
         
         if(s->in_emph == 0){
@@ -136,6 +136,45 @@ char ital_end(struct state *s, FILE *ifp, FILE *ofp, char c){
     return c;
 }
 
+char u_list_process(struct state *s, FILE *ifp, FILE *ofp, char c){//Internal EOF check
+    if(s->in_list == 0){
+        fprintf(ofp, "<ul>\n");
+        s->in_list = 1;
+    }
+    
+    if(c == '-'){
+        s->in_elme = 1;
+        fprintf(ofp, "<li>");
+    } else if( c == '\n' || c == EOF){
+        if(s->in_elme == 1){
+            s->in_elme = 0;
+            fprintf(ofp, "</li>");
+        } else {
+            s->in_list = 0;
+            fprintf(ofp, "</ul>\n");
+        }
+    } 
+    return c;
+}
+
+
+char code_process(struct state *s, FILE *ifp, FILE *ofp, char c){
+    if(s->in_code == 0){
+        s->in_code = 1;
+        fprintf(ofp, "<pre><code>");
+    } else {
+        s->in_code = 0;
+        fprintf(ofp, "</pre></code>");
+    }
+    return c;
+}
+
+char code_end(struct state *s, FILE *ifp, FILE *ofp, char c){
+    fprintf(ofp, "</pre></code>");
+    return c;
+}
+
+
 void process(struct state s, FILE *ifp, FILE *ofp){
     char c;
     int newLineCount = 0;
@@ -145,7 +184,17 @@ void process(struct state s, FILE *ifp, FILE *ofp){
             c = header_start(&s, ifp, ofp, c);
         } else if (c == '*'){
             c = emph_ital_process(&s, ifp, ofp, c);
-        } else if (c == '\n'){
+        } else if (c == '-'){
+            c = u_list_process(&s, ifp, ofp, c);
+        } else if (c == '`'){
+            c = code_process(&s, ifp, ofp, c);
+        } else if (c == '\n' || c == EOF){ //Some funcs move file forward so EOF must be checked
+            if(s.in_code == 1){
+                code_end(&s, ifp, ofp, c);
+            }
+            if(s.in_list == 1){
+                u_list_process(&s, ifp, ofp, c);
+            }
             if(s.in_ital == 1){
                 ital_end(&s, ifp, ofp, c);
             }
@@ -159,7 +208,21 @@ void process(struct state s, FILE *ifp, FILE *ofp){
         } else {
             fputc(c, ofp);
         }
-        
+    }
+
+    if(c == EOF){
+        if(s.in_list == 1){
+            u_list_process(&s, ifp, ofp, c);
+        }
+        if(s.in_ital == 1){
+            ital_end(&s, ifp, ofp, c);
+        }
+        if(s.in_emph == 1){
+            emph_end(&s, ifp, ofp, c);
+        }
+        if(s.in_head == 1){
+            header_end(&s, ifp, ofp, c);
+        }
     }
 
     return;
